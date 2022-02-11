@@ -1,0 +1,25 @@
+WITH lung_pats AS (SELECT chai_patient_id 
+FROM c3_cdm_ss_all_lung_202109_codified.condition 
+WHERE lower(diagnosis_code_standard_code) IN (SELECT code 
+FROM model_factory_dev.cancer_dx_list_ICD10_unified_V5_0 
+WHERE lower(type) LIKE lower('lung%') AND lower(precursor) LIKE lower('0')) AND lower(diagnosis_code_standard_vocabulary) IN ('icd10cm')), 
+
+
+lung_metastatic_date_info AS ( SELECT chai_patient_id, metastasis_date, curation_indicator 
+FROM (SELECT chai_patient_id AS chai_patient_id, stage_date AS metastasis_date, curation_indicator AS curation_indicator 
+FROM c3_cdm_ss_all_lung_202109_codified.staging 
+WHERE ((lower(stage_group_standard_name) LIKE lower('stage 4%') OR lower(mstage_standard_name) LIKE lower('%m1%')) AND curation_indicator = 0) UNION ALL SELECT chai_patient_id AS chai_patient_id, diagnosis_date AS metastasis_date, curation_indicator AS curation_indicator 
+FROM c3_cdm_ss_all_lung_202109_codified.condition 
+WHERE ((diagnosis_type_standard_code = '14799000' AND lower(diagnosis_type_standard_vocabulary) = 'snomedct') AND curation_indicator = 0))), 
+
+ met_select AS (SELECT * 
+FROM lung_metastatic_date_info 
+WHERE chai_patient_id IN (SELECT DISTINCT chai_patient_id 
+FROM lung_pats) ), 
+
+ summary AS (SELECT chai_patient_id, metastasis_date, row_number() OVER (PARTITION BY chai_patient_id ORDER BY metastasis_date) AS row_number 
+FROM met_select )
+
+SELECT chai_patient_id, date(metastasis_date) AS stage_date, '55440008' AS mstage_standard_code, 'M1 category' AS mstage_standard_name, 'SNOMED' AS mstage_standard_vocabulary, 1.0 AS precision_of_mstage_standard_name, '2' AS curation_indicator, '' AS version_of_ai_model 
+FROM summary 
+WHERE row_number = 1
